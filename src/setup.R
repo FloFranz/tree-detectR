@@ -18,13 +18,15 @@ if (!file.exists(paste('data')) |
     (!file.exists(paste('data/raw_data')) |
      (!file.exists(paste('data/raw_data/nDSMs')) |
       (!file.exists(paste('data/raw_data/nDSM_mosaic')) |
-       (!file.exists(paste('data/processed_data')) |
-        (!file.exists(paste('data/metadata')))))))) {
+       (!file.exists(paste('data/raw_data/forst')) |
+        (!file.exists(paste('data/processed_data')) |
+         (!file.exists(paste('data/metadata'))))))))) {
   
   dir.create('data')
   dir.create('data/raw_data')
   dir.create('data/raw_data/nDSMs')
   dir.create('data/raw_data/nDSM_mosaic')
+  dir.create('data/raw_data/forst')
   dir.create('data/processed_data')
   dir.create('data/metadata')
   
