@@ -71,7 +71,7 @@ terra::plot(ndsm_subregion,
 
 # function implementing a linear relationship
 # between TH and WS
-calc_ws = function(x) { 
+calc_ws_linear = function(x) { 
   
   # define end points for the linear relationship
   # TH < 2m --> WS = 3
@@ -96,7 +96,7 @@ calc_ws = function(x) {
 # function implementing a non-linar relationship
 # (exponential decay) between TH and WS
 # see: https://r-lidar.github.io/lidRbook/itd-its.html
-calc_ws <- function(x) {
+calc_ws_exp_decay <- function(x) {
   
   # calculate exponential decay
   y <- 2.6 * (-(exp(-0.08*(x-2)) - 1)) + 3
@@ -112,7 +112,7 @@ calc_ws <- function(x) {
 
 # function implementing a non-linear relationship
 # (spline interpolation) between TH and WS
-calc_ws <- function(x) {
+calc_ws_spline_int <- function(x) {
   
   # control points for the spline
   control_heights <- c(0, 2, 20, 25)
@@ -131,26 +131,65 @@ calc_ws <- function(x) {
   return(y)
 }
 
-# example plot showing the calculation of WS
+# plot showing the calculation of WS
 # depending on the choosen function
 heights <- seq(-5,30,0.5)
-ws <- calc_ws(heights)
-plot(heights, ws, type = 'l',  ylim = c(0,5))
+ws_linear <- calc_ws_linear(heights)
+ws_exp_decay <- calc_ws_exp_decay(heights)
+ws_spline_int <- calc_ws_spline_int(heights)
 
+plot(heights, ws_linear, type = 'l', col = 'red', ylim = c(0,5), 
+     xlab = 'height (m)', ylab = 'window size')
+lines(heights, ws_exp_decay, col = 'blue')
+lines(heights, ws_spline_int, col = 'green')
+legend('bottomright', legend = c('linear', 'exponential decay', 'spline interpolation'), 
+       col = c('blue', 'red', 'green'), lty = 1)
 
 # detect tree tops using LMF with 
 # the functions defined before
-ttops <- lidR::locate_trees(ndsm_subregion,
-                            lidR::lmf(ws = calc_ws,
-                                      shape = 'circular'))
+ws_methods <- list(
+  linear = calc_ws_linear,
+  exp_decay = calc_ws_exp_decay,
+  spline_int = calc_ws_spline_int
+)
 
-# write to disk
-sf::st_write(ttops, file.path(output_dir, 'ttops_nonlinear_spline.gpkg'))
+ttops <- list()
+
+for (method in names(ws_methods)) {
+  
+  calc_ws_func <- ws_methods[[method]]
+  
+  ttops[[method]] <- lidR::locate_trees(
+    ndsm_subregion,
+    lidR::lmf(ws = function(x) calc_ws_func(x), shape = 'circular')
+  )
+  
+  output_file_name <- file.path(output_dir, paste0('ttops_', method, '.gpkg'))
+  
+  sf::st_write(ttops[[method]], output_file_name)
+  
+  cat('tree top detection using method', method, 'completed.\n')
+  
+}
 
 # quick view
 terra::plot(ndsm_subregion,
             col = lidR::height.colors(50))
 terra::plot(sf::st_geometry(ttops), add = T, pch = 3)
+
+ttops_2d <- lapply(ttops, function(t) {
+  # remove Z (height) coordinate
+  t_2d <- sf::st_zm(t)
+  return(t_2d)
+})
+
+mapview::mapview(ndsm_subregion, col = colorRampPalette(c("black", "white"))(50),
+                 map.types = c('OpenStreetMap.DE', 'Esri.WorldImagery'),
+                 na.color = NA) +
+  
+  mapview::mapview(ttops_2d$exp_decay, cex = 2 ,label = 'Z', col.regions = 'blue', color = 'blue', layer.name = 'ttops_exp_decay') + 
+  mapview::mapview(ttops_2d$linear, cex = 2 ,label = 'Z', col.regions = 'red', color = 'red', layer.name = 'ttops_linear') +
+  mapview::mapview(ttops_2d$spline_int, cex = 2 ,label = 'Z', col.regions = 'green', color = 'green', layer.name = 'ttops_spline_int')
 
 
 
