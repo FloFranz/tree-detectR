@@ -135,7 +135,7 @@ calc_ws_spline_int <- function(x) {
 # https://github.com/andrew-plowright/ForestTools
 minHgt <- 2
 calc_ws_ForestTools <- function(x){
-  ws <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5) + 3)
+  ws <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5) + 2.38)
   return(ws)
 }
 
