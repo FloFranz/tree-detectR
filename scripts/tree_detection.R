@@ -77,7 +77,7 @@ calc_ws_linear = function(x) {
   # TH < 2m --> WS = 3
   # TH > 20m --> WS = 5
   x1 <- 2; y1 <- 3
-  x2 <- 20; y2 <- 5
+  x2 <- 30; y2 <- 6
   
   # calculate slope (m)
   m <- (y2 - y1) / (x2 - x1)
@@ -88,7 +88,7 @@ calc_ws_linear = function(x) {
   # calculate WS using linear relationship
   y <- m * x + b
   y[x < 2] <- 3
-  y[x > 20] <- 5
+  y[x > 30] <- 6
   
   return(y)
 }
@@ -99,13 +99,13 @@ calc_ws_linear = function(x) {
 calc_ws_exp_decay <- function(x) {
   
   # calculate exponential decay
-  y <- 2.6 * (-(exp(-0.08*(x-2)) - 1)) + 3
+  y <- 3.47 * (-(exp(-0.07*(x-2)) - 1)) + 3
   
   # define end points for the non-linear relationship
   # TH < 2m --> WS = 3
   # TH > 20m --> WS = 5
   y[x < 2] <- 3
-  y[x > 20] <- 5
+  y[x > 30] <- 6
   
   return(y)
 }
@@ -115,8 +115,8 @@ calc_ws_exp_decay <- function(x) {
 calc_ws_spline_int <- function(x) {
   
   # control points for the spline
-  control_heights <- c(0, 2, 20, 25)
-  control_ws <- c(3, 3, 5, 5)
+  control_heights <- c(0, 2, 30, 35)
+  control_ws <- c(3, 3, 6, 6)
   
   # create spline function
   ws_func <- stats::splinefun(control_heights, control_ws, method = 'natural')
@@ -126,24 +126,36 @@ calc_ws_spline_int <- function(x) {
   
   # ensure end points
   y[x < 2] <- 3
-  y[x > 20] <- 5
+  y[x > 30] <- 6
   
   return(y)
 }
 
+# using package ForestTools
+# https://github.com/andrew-plowright/ForestTools
+minHgt <- 2
+calc_ws_ForestTools <- function(x){
+  ws <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5) + 3)
+  return(ws)
+}
+
 # plot showing the calculation of WS
 # depending on the choosen function
-heights <- seq(-5,30,0.5)
+heights <- seq(-5,35,0.5)
 ws_linear <- calc_ws_linear(heights)
 ws_exp_decay <- calc_ws_exp_decay(heights)
 ws_spline_int <- calc_ws_spline_int(heights)
+ws_ForestTools <- calc_ws_ForestTools(heights)
 
-plot(heights, ws_linear, type = 'l', col = 'red', ylim = c(0,5), 
-     xlab = 'height (m)', ylab = 'window size')
-lines(heights, ws_exp_decay, col = 'blue')
-lines(heights, ws_spline_int, col = 'green')
-legend('bottomright', legend = c('linear', 'exponential decay', 'spline interpolation'), 
-       col = c('blue', 'red', 'green'), lty = 1)
+colors <- RColorBrewer::brewer.pal(4, 'Set1')
+
+plot(heights, ws_linear, type = 'l', col = colors[1], lwd = 2,
+     ylim = c(0,6), xlab = 'height (m)', ylab = 'window size')
+lines(heights, ws_exp_decay, col = colors[2], lwd = 2)
+lines(heights, ws_spline_int, col = colors[3], lwd = 2)
+lines(heights, ws_ForestTools, col = colors[4], lwd = 2)
+legend('bottomright', legend = c('linear', 'exponential decay', 'spline interpolation', 'ForestTools'), 
+       col = c(colors[1], colors[2], colors[3], colors[4]), lty = 1, lwd = 2)
 
 # detect tree tops using LMF with 
 # the functions defined before
@@ -172,11 +184,10 @@ for (method in names(ws_methods)) {
   
 }
 
-# quick view
-terra::plot(ndsm_subregion,
-            col = lidR::height.colors(50))
-terra::plot(sf::st_geometry(ttops), add = T, pch = 3)
+ttops_forest_tools <- ForestTools::vwf(ndsm_subregion, calc_ws_ForestTools, minHgt)
+sf::st_write(ttops_forest_tools, file.path(output_dir, 'ttops_ForestTools.gpkg'))
 
+# quick view
 ttops_2d <- lapply(ttops, function(t) {
   # remove Z (height) coordinate
   t_2d <- sf::st_zm(t)
@@ -190,6 +201,29 @@ mapview::mapview(ndsm_subregion, col = colorRampPalette(c("black", "white"))(50)
   mapview::mapview(ttops_2d$exp_decay, cex = 2 ,label = 'Z', col.regions = 'blue', color = 'blue', layer.name = 'ttops_exp_decay') + 
   mapview::mapview(ttops_2d$linear, cex = 2 ,label = 'Z', col.regions = 'red', color = 'red', layer.name = 'ttops_linear') +
   mapview::mapview(ttops_2d$spline_int, cex = 2 ,label = 'Z', col.regions = 'green', color = 'green', layer.name = 'ttops_spline_int')
+
+
+
+# 04 - comparison - statistical analysis
+#----------------------------------------
+
+# Create a data frame for plotting
+df <- data.frame(
+  height = c(ttops$linear$Z, ttops$exp_decay$Z, ttops$spline_int$Z),
+  method = c(rep('linear', length(ttops$linear$Z)), rep('exponential decay', length(ttops$exp_decay$Z)), rep('spline interpolation', length(ttops$spline_int$Z)))
+)
+
+# density plot of detected heights
+ggplot(df, aes(x = height, fill = method)) +
+  geom_density(color = NA) +
+  labs(title = 'height distribution of tree tops',
+       x = 'height (Z values)', 
+       y = 'density') +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(3, 'Set1')) +
+  theme_minimal()
+
+
+
 
 
 
