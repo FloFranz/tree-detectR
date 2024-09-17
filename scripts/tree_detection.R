@@ -2,7 +2,7 @@
 # Name:         tree_detection.R
 # Description:  In this script, different individual tree detection (ITD)
 #               methods are compared to a subset of a larger forest area.
-#               The lidR package is used for ITD.
+#               The packages lidR and ForestTools are used for ITD.
 # Author:       Florian Franz
 # Contact:      florian.franz@nw-fva.de
 #------------------------------------------------------------------------
@@ -64,72 +64,13 @@ terra::plot(ndsm_subregion,
 
 
 # 04 - ITD
+# local maximum filter (LMF) with
+# variable window size (WS) depending
+# on tree heights (TH)
 #-------------------------------------
 
-# local maximum filter (LMF) with
-# variable window size (WS) depending on tree heights (TH)
-
-# function implementing a linear relationship
-# between TH and WS
-calc_ws_linear = function(x) { 
-  
-  # define end points for the linear relationship
-  # TH < 2m --> WS = 3
-  # TH > 20m --> WS = 5
-  x1 <- 2; y1 <- 3
-  x2 <- 30; y2 <- 6
-  
-  # calculate slope (m)
-  m <- (y2 - y1) / (x2 - x1)
-  
-  # calculate intercept (b)
-  b <- y1 - m * x1
-  
-  # calculate WS using linear relationship
-  y <- m * x + b
-  y[x < 2] <- 3
-  y[x > 30] <- 6
-  
-  return(y)
-}
-
-# function implementing a non-linar relationship
-# (exponential decay) between TH and WS
-# see: https://r-lidar.github.io/lidRbook/itd-its.html
-calc_ws_exp_decay <- function(x) {
-  
-  # calculate exponential decay
-  y <- 3.47 * (-(exp(-0.07*(x-2)) - 1)) + 3
-  
-  # define end points for the non-linear relationship
-  # TH < 2m --> WS = 3
-  # TH > 20m --> WS = 5
-  y[x < 2] <- 3
-  y[x > 30] <- 6
-  
-  return(y)
-}
-
-# function implementing a non-linear relationship
-# (spline interpolation) between TH and WS
-calc_ws_spline_int <- function(x) {
-  
-  # control points for the spline
-  control_heights <- c(0, 2, 30, 35)
-  control_ws <- c(3, 3, 6, 6)
-  
-  # create spline function
-  ws_func <- stats::splinefun(control_heights, control_ws, method = 'natural')
-  
-  # calculate WS
-  y <- ws_func(x)
-  
-  # ensure end points
-  y[x < 2] <- 3
-  y[x > 30] <- 6
-  
-  return(y)
-}
+# source functions for calculating ws
+source('src/calc_ws.R', local = TRUE)
 
 # using package ForestTools
 # https://github.com/andrew-plowright/ForestTools
@@ -224,6 +165,60 @@ ggplot(df, aes(x = height, fill = method)) +
 
 
 
+# 05 - application to whole area
+#----------------------------------------
+
+# plot whole area with forest stands
+terra::plot(ndsm, col = lidR::height.colors(50))
+terra::plot(fwk$geom, alpha = 1, border = 'black', add = T)
+
+# check geometry validity
+sf::st_is_valid(fwk, reason = TRUE)
+
+# filter out invalid geometries
+# (two geometries are removed)
+fwk <- fwk[sf::st_is_valid(fwk), ]
+
+# mask CHM to forest stands
+ndsm_aoi <- terra::crop(ndsm, fwk_valid, mask = T)
+terra::plot(ndsm_aoi, col = lidR::height.colors(50))
+
+# define ws calculation
+winFunction <- function(x){x * 0.06 + 0.5} + 2.38
+
+# set minimum tree height
+minHgt <- 2
+
+# ITD with ForestTools
+ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction, minHgt)
+head(ttops_ndsm_aoi)
+sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.gpkg'))
+
+
+
+# 06 - add tree species information
+#-------------------------------------
+
+# clean FB column (tree species) to keep only the species number
+# (part before the comma) and exclude the age
+fwk$FB_clean <- ifelse(is.na(fwk$FB), NA, substr(fwk$FB, 1, 1))
+
+# convert column to numeric
+fwk$FB_clean <- as.numeric(fwk$FB_clean)
+
+# define corresponding names of the tree species
+tree_species_names <- c("Eiche", "Buche", "Edellaubbäume", "Weichlaubbäume",
+                        "Fichte, Tanne", "Douglasie", "Kiefer", "Lärche")
+
+# add new column with species names based on the FB_clean column
+fwk$tree_species_name <- tree_species_names[fwk$FB_clean]
+
+# assign tree species to each detected tree top
+ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, fwk[, c('FB_clean', 'tree_species_name')])
+head(ttops_ndsm_aoi_ts)
+sf::st_write(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.gpkg'))
+write.csv(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.csv'),
+          row.names = FALSE, sep = ';')
 
 
 
