@@ -218,7 +218,7 @@ ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, fwk[, c('FB_clean', 'tree_speci
 head(ttops_ndsm_aoi_ts)
 sf::st_write(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.gpkg'))
 write.csv(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.csv'),
-          row.names = FALSE, sep = ';')
+          row.names = FALSE)
 
 
 
