@@ -197,13 +197,14 @@ sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.
 
 
 # 06 - add tree species information
-#-------------------------------------
+# and stand number ("Abteilungsnummer")
+#--------------------------------------
 
 # clean FB column (tree species) to keep only the species number
 # (part before the comma) and exclude the age
 fwk$FB_clean <- ifelse(is.na(fwk$FB), NA, substr(fwk$FB, 1, 1))
 
-# convert column to numeric
+# convert FB_clean column to numeric
 fwk$FB_clean <- as.numeric(fwk$FB_clean)
 
 # define corresponding names of the tree species
@@ -216,9 +217,30 @@ fwk$tree_species_name <- tree_species_names[fwk$FB_clean]
 # assign tree species to each detected tree top
 ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, fwk[, c('FB_clean', 'tree_species_name')])
 head(ttops_ndsm_aoi_ts)
-sf::st_write(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.gpkg'))
-write.csv(ttops_ndsm_aoi_ts, file.path(output_dir, 'ttops_with_tree_species_np_kellerwald_edersee.csv'),
-          row.names = FALSE)
+
+# rename column FB_clean to tree_species_code
+ttops_ndsm_aoi_ts <- ttops_ndsm_aoi_ts %>%
+  dplyr::rename(
+    tree_species_code = FB_clean
+  )
+
+# convert FO_HRW4ABT_BEZ column to numeric
+fwk$FO_HRW4ABT_BEZ <- as.numeric(fwk$FO_HRW4ABT_BEZ)
+
+# assign stand number to each detected tree top
+ttops_ndsm_aoi_ts_stands <- sf::st_join(ttops_ndsm_aoi_ts, fwk[, c('FO_HRW4ABT_BEZ')])
+head(ttops_ndsm_aoi_ts_stands)
+
+# rename column FO_HRW4ABT_BEZ to stand_number
+ttops_ndsm_aoi_ts_stands <- ttops_ndsm_aoi_ts_stands %>%
+  dplyr::rename(
+    stand_number = FO_HRW4ABT_BEZ
+  )
+
+# write to disk
+sf::st_write(ttops_ndsm_aoi_ts_stands, 
+             file.path(output_dir, 'ttops_ts_stnr_np_kellerwald_edersee.gpkg'))
+
 
 
 
