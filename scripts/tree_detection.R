@@ -28,7 +28,7 @@ forst_path <- file.path(raw_data_dir, 'forst')
 ndsm_name <- 'ndsm_np_kellerwald_edersee.tif'
 
 # name of the forestry data
-forst_name <- 'fwk_np_kellerwald_edersee.gpkg'
+forst_name <- 'hf_fe_geometrien.shp'
 
 
 
@@ -172,15 +172,8 @@ ggplot(df, aes(x = height, fill = method)) +
 terra::plot(ndsm, col = lidR::height.colors(50))
 terra::plot(fwk$geom, alpha = 1, border = 'black', add = T)
 
-# check geometry validity
-sf::st_is_valid(fwk, reason = TRUE)
-
-# filter out invalid geometries
-# (two geometries are removed)
-fwk <- fwk[sf::st_is_valid(fwk), ]
-
 # mask CHM to forest stands
-ndsm_aoi <- terra::crop(ndsm, fwk_valid, mask = T)
+ndsm_aoi <- terra::crop(ndsm, fwk, mask = T)
 terra::plot(ndsm_aoi, col = lidR::height.colors(50))
 
 # define ws calculation
@@ -215,27 +208,34 @@ tree_species_names <- c("Eiche", "Buche", "Edellaubbäume", "Weichlaubbäume",
 fwk$tree_species_name <- tree_species_names[fwk$FB_clean]
 
 # assign tree species to each detected tree top
-ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, fwk[, c('FB_clean', 'tree_species_name')])
+ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, 
+                                 fwk[, c('FB_clean', 'tree_species_name')])
 head(ttops_ndsm_aoi_ts)
 
-# rename column FB_clean to tree_species_code
+# rename columns
 ttops_ndsm_aoi_ts <- ttops_ndsm_aoi_ts %>%
   dplyr::rename(
-    tree_species_code = FB_clean
+    Baumartcode = FB_clean,
+    Baumartname = tree_species_name
   )
 
-# convert FO_HRW4ABT_BEZ column to numeric
-fwk$FO_HRW4ABT_BEZ <- as.numeric(fwk$FO_HRW4ABT_BEZ)
+# convert columns FO_HRW4ABT and FO_HRW2_BE to numeric
+fwk$FO_HRW4ABT <- as.numeric(fwk$FO_HRW4ABT)
+fwk$FO_HRW2_BE <- as.numeric(fwk$FO_HRW2_BE)
 
-# assign stand number to each detected tree top
-ttops_ndsm_aoi_ts_stands <- sf::st_join(ttops_ndsm_aoi_ts, fwk[, c('FO_HRW4ABT_BEZ')])
+# assign three forest classification levels (Abteilung, Unterabteilung, Bestand)
+# to each detected tree top
+ttops_ndsm_aoi_ts_stands <- sf::st_join(ttops_ndsm_aoi_ts, 
+                                        fwk[, c('FO_HRW4ABT', 'FO_HRW3_BE', 'FO_HRW2_BE')])
 head(ttops_ndsm_aoi_ts_stands)
 
-# rename column FO_HRW4ABT_BEZ to stand_number
+# rename columns
 ttops_ndsm_aoi_ts_stands <- ttops_ndsm_aoi_ts_stands %>%
   dplyr::rename(
-    stand_number = FO_HRW4ABT_BEZ
-  )
+    Abteilung = FO_HRW4ABT,
+    Unterabteilung = FO_HRW3_BE ,
+    Bestand = FO_HRW2_BE
+    )
 
 # write to disk
 sf::st_write(ttops_ndsm_aoi_ts_stands, 
