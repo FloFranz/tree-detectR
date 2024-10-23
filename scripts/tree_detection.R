@@ -189,9 +189,12 @@ sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.
 
 
 
-# 06 - add tree species information
-# and stand number ("Abteilungsnummer")
+# 06 - add tree species information,
+# stand number ("Abteilungsnummer"),
+# and stand area size
 #--------------------------------------
+
+### tree species ###
 
 # clean FB column (tree species) to keep only the species number
 # (part before the comma) and exclude the age
@@ -219,6 +222,8 @@ ttops_ndsm_aoi_ts <- ttops_ndsm_aoi_ts %>%
     Baumartname = tree_species_name
   )
 
+### stand number ###
+
 # convert columns FO_HRW4ABT and FO_HRW2_BE to numeric
 fwk$FO_HRW4ABT <- as.numeric(fwk$FO_HRW4ABT)
 fwk$FO_HRW2_BE <- as.numeric(fwk$FO_HRW2_BE)
@@ -237,9 +242,32 @@ ttops_ndsm_aoi_ts_stands <- ttops_ndsm_aoi_ts_stands %>%
     Bestand = FO_HRW2_BE
     )
 
+### stand area size ###
+
+# calculate area of each polygon (Bestand) in fwk
+fwk$area <- sf::st_area(fwk)
+
+# convert to numeric
+fwk$area <- as.numeric(fwk$area)
+
+# convert from sqm to ha
+fwk$area <- fwk$area / 10000
+
+# assign stand area sizes to detected tree tops
+ttops_ndsm_aoi_ts_stands_area <- sf::st_join(ttops_ndsm_aoi_ts_stands, 
+                                             fwk[, 'area'])
+
+head(ttops_ndsm_aoi_ts_stands_area)
+
+# rename columns
+ttops_ndsm_aoi_ts_stands_area <- ttops_ndsm_aoi_ts_stands_area %>%
+  dplyr::rename(
+    Bestandsflaeche = area
+  )
+
 # write to disk
-sf::st_write(ttops_ndsm_aoi_ts_stands, 
-             file.path(output_dir, 'ttops_ts_stnr_np_kellerwald_edersee.gpkg'))
+sf::st_write(ttops_ndsm_aoi_ts_stands_area, 
+             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee.gpkg'))
 
 
 
