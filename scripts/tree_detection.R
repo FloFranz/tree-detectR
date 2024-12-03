@@ -228,15 +228,18 @@ ttops_ndsm_aoi_ts <- ttops_ndsm_aoi_ts %>%
 fwk$FO_HRW4ABT <- as.numeric(fwk$FO_HRW4ABT)
 fwk$FO_HRW2_BE <- as.numeric(fwk$FO_HRW2_BE)
 
-# assign three forest classification levels (Abteilung, Unterabteilung, Bestand)
-# to each detected tree top
-ttops_ndsm_aoi_ts_stands <- sf::st_join(ttops_ndsm_aoi_ts, 
-                                        fwk[, c('FO_HRW4ABT', 'FO_HRW3_BE', 'FO_HRW2_BE')])
+# assign three forest classification levels (Abteilung, Unterabteilung, Bestand),
+# and all three in one key to each detected tree top
+ttops_ndsm_aoi_ts_stands <- sf::st_join(
+  ttops_ndsm_aoi_ts, 
+  fwk[, c('FO_IDFBBCH', 'FO_HRW4ABT', 'FO_HRW3_BE', 'FO_HRW2_BE')])
+
 head(ttops_ndsm_aoi_ts_stands)
 
 # rename columns
 ttops_ndsm_aoi_ts_stands <- ttops_ndsm_aoi_ts_stands %>%
   dplyr::rename(
+    Schluessel = FO_IDFBBCH,
     Abteilung = FO_HRW4ABT,
     Unterabteilung = FO_HRW3_BE ,
     Bestand = FO_HRW2_BE
