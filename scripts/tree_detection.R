@@ -48,20 +48,27 @@ fwk
 # 03 - pre-processing
 #-------------------------------------
 
-# select forest subregion based on the 'Abteilung'
-subregion <- fwk %>% 
-  dplyr::filter(FO_HRW4ABT_BEZ == '84' | FO_HRW4ABT_BEZ == '83')
-subregion
+# select forest subregions (stands)
+subregion_1 <- fwk %>% 
+  dplyr::filter(FO_IDFBBCH == '0718,1,2212,6504,B,2,2013,2005')
+subregion_1
 
-# crop CHM to a smaller subregion
-ndsm_subregion <- terra::crop(ndsm, subregion, mask = T)
-ndsm_subregion
+subregion_2 <- fwk %>% 
+  dplyr::filter(FO_IDFBBCH == '0718,1,2212,519,B,1,2016,2005')
+subregion_2
+
+# crop CHM to a smaller subregions
+ndsm_subregion_1 <- terra::crop(ndsm, subregion_1, mask = T)
+ndsm_subregion_2 <- terra::crop(ndsm, subregion_2, mask = T)
+ndsm_subregion_1
+ndsm_subregion_2
 
 # quick overview
-terra::plot(ndsm_subregion,
-            col = lidR::height.colors(50))
-
-
+par_org <- par()
+par(mfrow = c(1,2))
+terra::plot(ndsm_subregion_1, col = lidR::height.colors(50))
+terra::plot(ndsm_subregion_2, col = lidR::height.colors(50))
+par(par_org)
 
 # 04 - ITD
 # local maximum filter (LMF) with
@@ -144,6 +151,79 @@ mapview::mapview(ndsm_subregion, col = colorRampPalette(c("black", "white"))(50)
   mapview::mapview(ttops_2d$spline_int, cex = 2 ,label = 'Z', col.regions = 'green', color = 'green', layer.name = 'ttops_spline_int')
 
 
+#######################################################
+### comparison of different window size calculation ###
+#######################################################
+
+# set minimum tree height
+minHgt <- 2
+
+calc_ws <- function(x, minHgt){
+  ws_1 <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5) + 2.38)
+  ws_2 <- ifelse(x < minHgt, NA, (x * 0.04 + 0.75) + 2.38)
+  ws_3 <- ifelse(x < minHgt, NA, (x * 0.03 + 0.95) + 2.38)
+  ws_4 <- ifelse(x < minHgt, NA, (x * 0.02 + 1.2) + 2.38)
+  return(data.frame(ws_1 = ws_1, ws_2 = ws_2, ws_3 = ws_3, ws_4 = ws_4))
+}
+
+# plot showing the calculation of WS
+# depending on the choosen ws function
+heights <- seq(-5,40,0.5)
+ws_values <- calc_ws(heights, minHgt)
+
+colors <- RColorBrewer::brewer.pal(4, 'Set1')
+
+plot(heights, ws_values$ws_1, type = 'l', col = colors[1], lwd = 2,
+     ylim = c(0, 10), xlab = 'Height (m)', ylab = 'Window Size (m)')
+lines(heights, ws_values$ws_2, col = colors[2], lwd = 2)
+lines(heights, ws_values$ws_3, col = colors[3], lwd = 2)
+lines(heights, ws_values$ws_4, col = colors[4], lwd = 2)
+legend('bottomright', 
+       legend = c('original', 'flat 1', 'flat 2', 'flat 3'), 
+       col = colors, lty = 1, lwd = 2)
+
+# define ws calculation
+winFunction_1 <- function(x){x * 0.06 + 0.5} + 2.38
+winFunction_2 <- function(x){x * 0.04 + 0.75} + 2.38
+winFunction_3 <- function(x){x * 0.03 + 0.95} + 2.38
+winFunction_4 <- function(x){x * 0.02 + 1.2} + 2.38
+
+# ITD with ForestTools
+ttops1_subregion_1 <- ForestTools::vwf(ndsm_subregion_1, winFunction_1, minHgt)
+ttops2_subregion_1 <- ForestTools::vwf(ndsm_subregion_1, winFunction_2, minHgt)
+ttops3_subregion_1 <- ForestTools::vwf(ndsm_subregion_1, winFunction_3, minHgt)
+ttops4_subregion_1 <- ForestTools::vwf(ndsm_subregion_1, winFunction_4, minHgt)
+
+ttops1_subregion_2 <- ForestTools::vwf(ndsm_subregion_2, winFunction_1, minHgt)
+ttops2_subregion_2 <- ForestTools::vwf(ndsm_subregion_2, winFunction_2, minHgt)
+ttops3_subregion_2 <- ForestTools::vwf(ndsm_subregion_2, winFunction_3, minHgt)
+ttops4_subregion_2 <- ForestTools::vwf(ndsm_subregion_2, winFunction_4, minHgt)
+
+# new trees detected in flat 1 but not in original
+new_trees_2_vs_1 <- st_difference(ttops2_subregion_1, st_union(ttops1_subregion_1))
+
+# missing trees detected in original but not in flat 1
+missing_trees_2_vs_1 <- st_difference(ttops1_subregion_1, st_union(ttops2_subregion_1))
+
+# count number of new and missing trees
+num_new_trees_2_vs_1 <- nrow(new_trees_2_vs_1)
+num_missing_trees_2_vs_1 <- nrow(missing_trees_2_vs_1)
+
+# calculate net difference
+net_difference_2_vs_1 <- num_new_trees_2_vs_1 - num_missing_trees_2_vs_1
+
+cat('Flat 1 vs Original:\n')
+cat('New Trees Detected:', num_new_trees_2_vs_1, '\n')
+cat('Missing Trees:', num_missing_trees_2_vs_1, '\n')
+cat('Net Difference:', net_difference_2_vs_1, '\n')
+
+# write to disk
+sf::st_write(ttops1_subregion_1, file.path(output_dir, 'ttops_subregion_1_org.gpkg'))
+sf::st_write(ttops2_subregion_1, file.path(output_dir, 'ttops_subregion_1_flat1.gpkg'))
+sf::st_write(ttops3_subregion_1, file.path(output_dir, 'ttops_subregion_1_flat2.gpkg'))
+sf::st_write(ttops4_subregion_1, file.path(output_dir, 'ttops_subregion_1_flat3.gpkg'))
+
+
 
 # 04 - comparison - statistical analysis
 #----------------------------------------
@@ -178,14 +258,15 @@ terra::plot(ndsm_aoi, col = lidR::height.colors(50))
 
 # define ws calculation
 winFunction <- function(x){x * 0.06 + 0.5} + 2.38
+winFunction_new <- function(x){x * 0.04 + 0.75} + 2.38
 
 # set minimum tree height
 minHgt <- 2
 
 # ITD with ForestTools
-ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction, minHgt)
+ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction_new, minHgt)
 head(ttops_ndsm_aoi)
-sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.gpkg'))
+sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee_new.gpkg'))
 
 
 
@@ -211,6 +292,11 @@ tree_species_names <- c("Eiche", "Buche", "Edellaubbäume", "Weichlaubbäume",
 fwk$tree_species_name <- tree_species_names[fwk$FB_clean]
 
 # assign tree species to each detected tree top
+# if the following message is printed:
+# "Fehler in st_geos_binop("intersects", x, y, sparse = sparse, prepared = prepared,  : 
+# st_crs(x) == st_crs(y) ist nicht TRUE
+# add this command:
+# sf::st_transform(ttops_ndsm_aoi, sf::st_crs(fwk))
 ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, 
                                  fwk[, c('FB_clean', 'tree_species_name')])
 head(ttops_ndsm_aoi_ts)
@@ -270,7 +356,7 @@ ttops_ndsm_aoi_ts_stands_area <- ttops_ndsm_aoi_ts_stands_area %>%
 
 # write to disk
 sf::st_write(ttops_ndsm_aoi_ts_stands_area, 
-             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee.gpkg'))
+             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee_new.gpkg'))
 
 
 
