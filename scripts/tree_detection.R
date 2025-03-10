@@ -168,7 +168,8 @@ calc_ws <- function(x, minHgt){
   ws_3 <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5))          # default in ForestTools
   ws_4 <- ifelse(x < minHgt, NA, (x * 0.06 + 1))            # same as default, intercept is changed
   ws_5 <- ifelse(x < minHgt, NA, (x * 0.08 + 0.5))          # same as default, slope is changed
-  return(data.frame(ws_1 = ws_1, ws_2 = ws_2, ws_3 = ws_3, ws_4 = ws_4, ws_5))
+  ws_6 <- ifelse(x < minHgt, NA, (x * 0.1 + 1.2))           # higher intercept and higher slope
+  return(data.frame(ws_1 = ws_1, ws_2 = ws_2, ws_3 = ws_3, ws_4 = ws_4, ws_5, ws_6))
 }
 
 # plot showing the calculation of WS
@@ -176,7 +177,7 @@ calc_ws <- function(x, minHgt){
 heights <- seq(0,40,0.5)
 ws_values <- calc_ws(heights, minHgt)
 
-colors <- RColorBrewer::brewer.pal(5, 'Set1')
+colors <- RColorBrewer::brewer.pal(8, 'Set1')
 
 plot(heights, ws_values$ws_1, type = 'l', col = colors[1], lwd = 3,
      xlab = 'Height (m)', ylab = 'Window Size (m)', ylim = c(0,6),
@@ -188,9 +189,11 @@ lines(heights, ws_values$ws_2, col = colors[2], lwd = 3)
 lines(heights, ws_values$ws_3, col = colors[3], lwd = 3)
 lines(heights, ws_values$ws_4, col = colors[4], lwd = 3)
 lines(heights, ws_values$ws_5, col = colors[5], lwd = 3)
+lines(heights, ws_values$ws_6, col = colors[8], lwd = 3)
 legend('bottomright', 
-       legend = c('ws_1', 'ws_2', 'ws_3', 'ws_4', 'ws_5'), 
-       col = colors, lty = 1, lwd = 3)
+       legend = c('ws_1', 'ws_2', 'ws_3', 'ws_4', 'ws_5', 'ws_6'), 
+       col = c(colors[1], colors[2], colors[3], colors[4], colors[5], colors[8]), 
+       lty = 1, lwd = 3)
 
 # define ws calculation functions
 winFunctions <- list(
@@ -198,7 +201,8 @@ winFunctions <- list(
   winFunction_2 = function(x){x * 0.06 + 0.5} + 2.38,
   winFunction_3 = function(x){x * 0.06 + 0.5},
   winFunction_4 = function(x){x * 0.06 + 1},
-  winFunction_5 = function(x){x * 0.08 + 0.5}
+  winFunction_5 = function(x){x * 0.08 + 0.5},
+  winFunction_6 = function(x){x * 0.1 + 1.2}
 )
 
 # list of subregions (CHMs of the 3 stands)
@@ -235,19 +239,67 @@ for (stand in names(ndsm_stands)) {
 # 04 - comparison - statistical analysis
 #----------------------------------------
 
-# Create a data frame for plotting
-df <- data.frame(
-  height = c(ttops$linear$Z, ttops$exp_decay$Z, ttops$spline_int$Z),
-  method = c(rep('linear', length(ttops$linear$Z)), rep('exponential decay', length(ttops$exp_decay$Z)), rep('spline interpolation', length(ttops$spline_int$Z)))
-)
+# initialize empty list to collect data
+df_list <- list()
 
-# density plot of detected heights
-ggplot(df, aes(x = height, fill = method)) +
-  geom_density(color = NA) +
-  labs(title = 'height distribution of tree tops',
-       x = 'height (Z values)', 
-       y = 'density') +
-  scale_fill_manual(values = RColorBrewer::brewer.pal(3, 'Set1')) +
+# loop through all ttops calculated
+# with different ws in all stands
+for (name in names(ttops_stands)) {
+  
+  # extract ttops
+  ttops <- ttops_stands[[name]]
+  
+  # ensure object is not empty
+  if (!is.null(ttops) && nrow(ttops) > 0) {
+    
+    # extract tree IDs and heights
+    df_list[[name]] <- data.frame(
+      treeID = ttops$treeID,
+      height = ttops$height,
+      method = sub("ttops_(winFunction_[0-9])_.*", "\\1", name),
+      subregion = sub(".*_(stand_[0-9])", "\\1", name)
+    )
+  }
+}
+
+# combine all extracted trees into one dataframe
+df_trees <- bind_rows(df_list)
+
+# summarize number of trees per method and subregion
+tree_counts <- df_trees %>%
+  group_by(subregion, method) %>%
+  summarise(count = n())
+
+# plot number number of trees per method and subregion
+colors_set1 <- RColorBrewer::brewer.pal(8, 'Set1')
+colors <- colors_set1[c(1,2,3,4,5,8)]
+
+ggplot(tree_counts, aes(x = subregion, y = count, fill = method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = 'Total Number of Detected Trees by Method and Subregion',
+       x = 'Subregion',
+       y = 'Number of Trees') +
+  scale_fill_manual(values = colors) +
+  theme_minimal()
+
+# boxplot of tree heights per method and subregion
+ggplot(df_trees, aes(x = method, y = height, fill = method)) +
+  geom_boxplot() +
+  facet_wrap(~subregion) +
+  labs(title = 'Tree Height Distribution by Method',
+       x = 'Method',
+       y = 'Tree Height (m)') +
+  scale_fill_manual(values = colors) +
+  theme_minimal()
+
+# cumulative distribution of detected tree heights
+ggplot(df_trees, aes(x = height, color = method)) +
+  stat_ecdf(geom = "step", size = 1) +
+  facet_wrap(~subregion) +
+  labs(title = 'Cumulative Distribution of Tree Heights by Method',
+       x = 'Height (m)', 
+       y = 'Cumulative Proportion') +
+  scale_color_manual(values = colors) +
   theme_minimal()
 
 
@@ -264,16 +316,15 @@ ndsm_aoi <- terra::crop(ndsm, fwk, mask = T)
 terra::plot(ndsm_aoi, col = lidR::height.colors(50))
 
 # define ws calculation
-winFunction <- function(x){x * 0.06 + 0.5} + 2.38
-winFunction_new <- function(x){x * 0.04 + 0.75} + 2.38
+winFunction <- function(x){x * 0.1 + 1.2}
 
 # set minimum tree height
 minHgt <- 2
 
 # ITD with ForestTools
-ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction_new, minHgt)
+ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction, minHgt)
 head(ttops_ndsm_aoi)
-sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee_new.gpkg'))
+sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.gpkg'))
 
 
 
@@ -363,7 +414,7 @@ ttops_ndsm_aoi_ts_stands_area <- ttops_ndsm_aoi_ts_stands_area %>%
 
 # write to disk
 sf::st_write(ttops_ndsm_aoi_ts_stands_area, 
-             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee_new.gpkg'))
+             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee.gpkg'))
 
 
 
