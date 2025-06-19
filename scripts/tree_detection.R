@@ -21,14 +21,20 @@ source('src/setup.R', local = TRUE)
 # input path to normalized canopy height model (CHM)
 ndsm_path <- file.path(raw_data_dir, 'nDSM_mosaic')
 
-# input path to forestry data
+# input path to raw forestry data
 forst_path <- file.path(raw_data_dir, 'forst')
+
+# input path to processed forestry data (PSI)
+forst_psi_path <- processed_data_dir
 
 # name of the input CHM
 ndsm_name <- 'ndsm_np_kellerwald_edersee.tif'
 
 # name of the forestry data
 forst_name <- 'hf_fe_geometrien.shp'
+
+# name of the processed forestry data (PSI)
+psi_name <- 'psi_kellerwald_crown_diameter.csv'
 
 
 
@@ -39,9 +45,13 @@ forst_name <- 'hf_fe_geometrien.shp'
 ndsm <- terra::rast(file.path(ndsm_path, ndsm_name))
 ndsm
 
-# read forestry data
+# read raw forestry data
 fwk <- sf::st_read(file.path(forst_path, forst_name))
 fwk
+
+# read processed forestry data (PSI)
+psi <- read.csv(file.path(forst_psi_path, psi_name))
+psi
 
 
 
@@ -159,50 +169,63 @@ mapview::mapview(ndsm_subregion, col = colorRampPalette(c("black", "white"))(50)
 ### comparison of different window size calculation ###
 #######################################################
 
+# fit models to crown width-height relationship
+lm_fit <- stats::lm(KB ~ hoe_mod, data = psi)
+loess_fit <- stats::loess(KB ~ hoe_mod, data = psi)
+
+# print model summaries
+print(summary(lm_fit))
+print(summary(loess_fit))
+
 # set minimum tree height
 minHgt <- 2
 
-calc_ws <- function(x, minHgt){
-  ws_1 <- ifelse(x < minHgt, NA, (x * 0.04 + 0.75) + 2.38)  # last applied
-  ws_2 <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5) + 2.38)   # default in ForestTools adjusted to min. ws 3 at min. height 2
-  ws_3 <- ifelse(x < minHgt, NA, (x * 0.06 + 0.5))          # default in ForestTools
-  ws_4 <- ifelse(x < minHgt, NA, (x * 0.06 + 1))            # same as default, intercept is changed
-  ws_5 <- ifelse(x < minHgt, NA, (x * 0.08 + 0.5))          # same as default, slope is changed
-  ws_6 <- ifelse(x < minHgt, NA, (x * 0.1 + 1.2))           # higher intercept and higher slope
-  return(data.frame(ws_1 = ws_1, ws_2 = ws_2, ws_3 = ws_3, ws_4 = ws_4, ws_5, ws_6))
-}
+# create window functions
+current_fun <- function(x) ifelse(x < minHgt, NA, (x * 0.1 + 1.2) * 2)  # multiply by 2 to show diameter
+lm_fun <- function(x) ifelse(x < minHgt, NA, stats::predict(lm_fit, newdata = data.frame(hoe_mod = x)))
+loess_fun <- function(x) ifelse(x < minHgt, NA, stats::predict(loess_fit, newdata = data.frame(hoe_mod = x)))
+
+# create data for plotting
+heights_seq <- seq(0, 40, 0.5)
+comparison_df <- data.frame(
+  height = heights_seq,
+  current = current_fun(heights_seq),
+  linear_fit = lm_fun(heights_seq),
+  loess_fit = loess_fun(heights_seq)
+)
 
 # plot showing the calculation of WS
 # depending on the chosen ws function
-heights <- seq(0,40,0.5)
-ws_values <- calc_ws(heights, minHgt)
-
-colors <- RColorBrewer::brewer.pal(8, 'Set1')
-
-plot(heights, ws_values$ws_1, type = 'l', col = colors[1], lwd = 3,
-     xlab = 'Height (m)', ylab = 'Window Size (m)', ylim = c(0,6),
-     yaxt = 'n', xaxt = 'n')
-axis(1, at = seq(min(heights), max(heights), by = 5))
-axis(2, at = seq(1, 5, by = 1))
-abline(v = 2, col = "black", lty = 2, lwd = 2)
-lines(heights, ws_values$ws_2, col = colors[2], lwd = 3)
-lines(heights, ws_values$ws_3, col = colors[3], lwd = 3)
-lines(heights, ws_values$ws_4, col = colors[4], lwd = 3)
-lines(heights, ws_values$ws_5, col = colors[5], lwd = 3)
-lines(heights, ws_values$ws_6, col = colors[8], lwd = 3)
-legend('bottomright', 
-       legend = c('ws_1', 'ws_2', 'ws_3', 'ws_4', 'ws_5', 'ws_6'), 
-       col = c(colors[1], colors[2], colors[3], colors[4], colors[5], colors[8]), 
-       lty = 1, lwd = 3)
+ggplot(psi, aes(x = hoe_mod, y = KB)) +
+  geom_point(color = 'black', alpha = 0.5) +
+  geom_line(data = comparison_df, aes(x = height, y = current, color = "current linear"), size = 2) +
+  geom_line(data = comparison_df, aes(x = height, y = linear_fit, color = "fitted linear"), size = 2) +
+  geom_line(data = comparison_df, aes(x = height, y = loess_fit, color = "fitted LOESS"), size = 2) +
+  geom_vline(xintercept = 2, linetype = "dashed", color = "black", size = 1) +
+  scale_color_manual(name = "models:",
+                     values = c("current linear" = "#7A76C2",     
+                                "fitted linear" = "#E69F00",         
+                                "fitted LOESS" = "#56B4E9")) +       
+  labs(
+    x = 'tree height [m]',
+    y = 'crown width [m]'
+  ) +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    legend.position = "bottom"
+  ) +
+  annotate("text", x = 2.8, y = 11.2, label = "2 m height threshold", hjust = 0, color = "black") +
+  scale_y_continuous(breaks = 1:ceiling(max(c(psi$KB, comparison_df$current, 
+                                              comparison_df$linear_fit, comparison_df$loess_fit), 
+                                            na.rm = T)))
 
 # define ws calculation functions
 winFunctions <- list(
-  winFunction_1 = function(x){x * 0.04 + 0.75} + 2.38,
-  winFunction_2 = function(x){x * 0.06 + 0.5} + 2.38,
-  winFunction_3 = function(x){x * 0.06 + 0.5},
-  winFunction_4 = function(x){x * 0.06 + 1},
-  winFunction_5 = function(x){x * 0.08 + 0.5},
-  winFunction_6 = function(x){x * 0.1 + 1.2}
+  current = function(x) ifelse(x < minHgt, NA, x * 0.1 + 1.2),
+  lm = function(x) ifelse(x < minHgt, NA, (coef(lm_fit)[1] + coef(lm_fit)[2] * x) / 2),
+  loess = function(x) ifelse(x < minHgt, NA, stats::predict(loess_fit, newdata = data.frame(hoe_mod = x)) / 2)
 )
 
 # list of subregions (CHMs of the 3 stands)
@@ -212,7 +235,7 @@ ndsm_stands <- list(
   stand_3 = ndsm_stand_3
 )
 
-# loop through both subregions and window functions
+# loop through subregions and window functions
 ttops_stands <- list()
 
 for (stand in names(ndsm_stands)) {
@@ -222,7 +245,7 @@ for (stand in names(ndsm_stands)) {
     # ITD with ForestTools
     ttops <- ForestTools::vwf(
       ndsm_stands[[stand]], winFunctions[[win_fun]], minHgt
-      )
+    )
     
     # store detected trees in the list
     ttops_stands[[paste0('ttops_', win_fun, '_', stand)]] <- ttops
@@ -230,7 +253,6 @@ for (stand in names(ndsm_stands)) {
     # write ttops to disk
     file_name <- paste0('ttops_', win_fun, '_', stand, '.gpkg')
     sf::st_write(ttops, file.path(output_dir, file_name), delete_layer = T)
-    
   }
 }
 
@@ -256,7 +278,7 @@ for (name in names(ttops_stands)) {
     df_list[[name]] <- data.frame(
       treeID = ttops$treeID,
       height = ttops$height,
-      method = sub("ttops_(winFunction_[0-9])_.*", "\\1", name),
+      method = sub("ttops_([^_]+)_.*", "\\1", name),
       subregion = sub(".*_(stand_[0-9])", "\\1", name)
     )
   }
@@ -270,27 +292,36 @@ tree_counts <- df_trees %>%
   group_by(subregion, method) %>%
   summarise(count = n())
 
-# plot number number of trees per method and subregion
-colors_set1 <- RColorBrewer::brewer.pal(8, 'Set1')
-colors <- colors_set1[c(1,2,3,4,5,8)]
+writexl::write_xlsx(tree_counts, path = file.path(output_dir, 'n_trees_detected_method_comp.xlsx'))
 
-ggplot(tree_counts, aes(x = subregion, y = count, fill = method)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(title = 'Total Number of Detected Trees by Method and Subregion',
-       x = 'Subregion',
-       y = 'Number of Trees') +
-  scale_fill_manual(values = colors) +
-  theme_minimal()
+# define colors to match the earlier plot
+plot_colors <- c("#7A76C2", "#E69F00", "#56B4E9") 
+names(plot_colors) <- c("current", "lm", "loess")
 
 # boxplot of tree heights per method and subregion
-ggplot(df_trees, aes(x = method, y = height, fill = method)) +
-  geom_boxplot() +
-  facet_wrap(~subregion) +
-  labs(title = 'Tree Height Distribution by Method',
-       x = 'Method',
-       y = 'Tree Height (m)') +
-  scale_fill_manual(values = colors) +
-  theme_minimal()
+ggplot(df_trees, aes(x = subregion, y = height, fill = method)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA) +
+  geom_jitter(
+    aes(color = method),
+    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8),
+    size = 1.2, alpha = 0.5, show.legend = F
+  ) +
+  labs(
+    title = 'Tree Height Distribution by Method',
+    x = '',
+    y = 'Tree Height (m)'
+  ) +
+  scale_fill_manual(
+    values = plot_colors,
+    labels = c("Current", "Linear Model", "LOESS")
+  ) +
+  scale_color_manual(
+    values = plot_colors
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank()
+  )
 
 # cumulative distribution of detected tree heights
 ggplot(df_trees, aes(x = height, color = method)) +
@@ -299,8 +330,86 @@ ggplot(df_trees, aes(x = height, color = method)) +
   labs(title = 'Cumulative Distribution of Tree Heights by Method',
        x = 'Height (m)', 
        y = 'Cumulative Proportion') +
-  scale_color_manual(values = colors) +
+  scale_color_manual(values = plot_colors,
+                     name = "Method",
+                     labels = c("Current", "Linear Model", "LOESS")) +
   theme_minimal()
+
+library(ggrepel)
+library(dplyr)
+
+# density plot with lines and direct labels (all subregions together)
+dens_data <- df_trees %>%
+  group_by(method) %>%
+  do({
+    dens <- density(.$height)
+    data.frame(height = dens$x, density = dens$y)
+  })
+
+label_data <- dens_data %>%
+  group_by(method) %>%
+  filter(height == max(height))
+
+ggplot(dens_data, aes(x = height, y = density, color = method)) +
+  geom_line(size = 1.2) +
+  geom_text_repel(
+    data = label_data,
+    aes(label = method),
+    nudge_x = 1,
+    direction = "y",
+    hjust = 0,
+    segment.color = NA,
+    fontface = "bold",
+    show.legend = FALSE
+  ) +
+  labs(
+    title = 'Density of Tree Heights by Method (with Labels)',
+    x = 'Tree Height (m)',
+    y = 'Density'
+  ) +
+  scale_color_manual(
+    values = plot_colors,
+    labels = c("Current", "Linear Model", "LOESS")
+  ) +
+  theme_minimal() +
+  guides(color = 'none')
+
+# density plot with lines and direct labels (faceted by subregion)
+dens_data_facet <- df_trees %>%
+  group_by(subregion, method) %>%
+  do({
+    dens <- density(.$height)
+    data.frame(height = dens$x, density = dens$y)
+  })
+
+label_data_facet <- dens_data_facet %>%
+  group_by(subregion, method) %>%
+  filter(height == max(height))
+
+ggplot(dens_data_facet, aes(x = height, y = density, color = method)) +
+  geom_line(size = 1.2) +
+  geom_text_repel(
+    data = label_data_facet,
+    aes(label = method),
+    nudge_x = 1,
+    direction = "y",
+    hjust = 0,
+    segment.color = NA,
+    fontface = "bold",
+    show.legend = FALSE
+  ) +
+  facet_wrap(~subregion) +
+  labs(
+    title = 'Density of Tree Heights by Method and Subregion (with Labels)',
+    x = 'Tree Height (m)',
+    y = 'Density'
+  ) +
+  scale_color_manual(
+    values = plot_colors,
+    labels = c("Current", "Linear Model", "LOESS")
+  ) +
+  theme_minimal() +
+  guides(color = 'none')
 
 
 
@@ -325,6 +434,22 @@ minHgt <- 2
 ttops_ndsm_aoi <- ForestTools::vwf(ndsm_aoi, winFunction, minHgt)
 head(ttops_ndsm_aoi)
 sf::st_write(ttops_ndsm_aoi, file.path(output_dir, 'ttops_np_kellerwald_edersee.gpkg'))
+
+### new detection ###
+
+# define linear fit for crown width-height relationship
+lm_fit <- stats::lm(KB ~ hoe_mod, data = psi)
+
+# set minimum tree height
+minHgt <- 2
+
+# define window size function using the linear fit
+winFunction <- function(x) ifelse(x < minHgt, NA, (coef(lm_fit)[1] + coef(lm_fit)[2] * x) / 2)
+
+# ITD with ForestTools using linear fit
+ttops_ndsm_aoi_lm <- ForestTools::vwf(ndsm_aoi, winFunction, minHgt)
+head(ttops_ndsm_aoi_lm)
+sf::st_write(ttops_ndsm_aoi_lm, file.path(output_dir, 'ttops_np_kellerwald_edersee_lm.gpkg'))
 
 
 
@@ -354,8 +479,8 @@ fwk$tree_species_name <- tree_species_names[fwk$FB_clean]
 # "Fehler in st_geos_binop("intersects", x, y, sparse = sparse, prepared = prepared,  : 
 # st_crs(x) == st_crs(y) ist nicht TRUE
 # add this command:
-# sf::st_transform(ttops_ndsm_aoi, sf::st_crs(fwk))
-ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi, 
+sf::st_transform(ttops_ndsm_aoi_lm, sf::st_crs(fwk))
+ttops_ndsm_aoi_ts <- sf::st_join(ttops_ndsm_aoi_lm, 
                                  fwk[, c('FB_clean', 'tree_species_name')])
 head(ttops_ndsm_aoi_ts)
 
@@ -414,7 +539,7 @@ ttops_ndsm_aoi_ts_stands_area <- ttops_ndsm_aoi_ts_stands_area %>%
 
 # write to disk
 sf::st_write(ttops_ndsm_aoi_ts_stands_area, 
-             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee.gpkg'))
+             file.path(output_dir, 'ttops_ts_stnr_area_np_kellerwald_edersee_lm.gpkg'))
 
 
 
