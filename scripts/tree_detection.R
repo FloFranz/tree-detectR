@@ -198,17 +198,17 @@ comparison_df <- data.frame(
 # depending on the chosen ws function
 ggplot(psi, aes(x = hoe_mod, y = KB)) +
   geom_point(color = 'black', alpha = 0.5) +
-  geom_line(data = comparison_df, aes(x = height, y = current, color = "current linear"), size = 2) +
+  geom_line(data = comparison_df, aes(x = height, y = current, color = "old linear"), size = 2) +
   geom_line(data = comparison_df, aes(x = height, y = linear_fit, color = "fitted linear"), size = 2) +
   geom_line(data = comparison_df, aes(x = height, y = loess_fit, color = "fitted LOESS"), size = 2) +
   geom_vline(xintercept = 2, linetype = "dashed", color = "black", size = 1) +
   scale_color_manual(name = "models:",
-                     values = c("current linear" = "#7A76C2",     
+                     values = c("old linear" = "#7A76C2",     
                                 "fitted linear" = "#E69F00",         
                                 "fitted LOESS" = "#56B4E9")) +       
   labs(
-    x = 'tree height [m]',
-    y = 'crown width [m]'
+    x = 'Baumhöhe [m]',
+    y = 'Kronenbreite [m]'
   ) +
   theme_minimal() +
   theme(
@@ -216,7 +216,7 @@ ggplot(psi, aes(x = hoe_mod, y = KB)) +
     axis.ticks = element_line(color = "black"),
     legend.position = "bottom"
   ) +
-  annotate("text", x = 2.8, y = 11.2, label = "2 m height threshold", hjust = 0, color = "black") +
+  annotate("text", x = 2.8, y = 11.2, label = "2 m Höhenschwellenwert", hjust = 0, color = "black") +
   scale_y_continuous(breaks = 1:ceiling(max(c(psi$KB, comparison_df$current, 
                                               comparison_df$linear_fit, comparison_df$loess_fit), 
                                             na.rm = T)))
